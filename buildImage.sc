@@ -68,3 +68,15 @@ def flashHypriotOS(ssid: String, psk: String, device: String, hostname: String, 
   write.over(pwd/"wifi.yaml", customConfig(ssid, psk, hostname, username, sshPubKey))
   %('flash, "--userdata", "wifi.yaml", "--device", device, s"https://github.com/hypriot/image-builder-rpi/releases/download/$HypriotOSVersion/hypriotos-rpi-$HypriotOSVersion.img.zip")
 }
+
+@main
+def installKubernetes(hostname: String, username: String) = {
+  %('ssh, "-i", s"${home.toString}/.ssh/id_rsa", s"$username@$hostname", "sudo apt-get update && sudo apt-get install -y apt-transport-https curl")
+  %('ssh, s"$username@$hostname", "curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -")
+  val kubeListExisted = %%('ssh, s"$username@$hostname", "[ -f /etc/apt/sources.list.d/kubernetes.list ] && echo \"Found\" || echo \"NotFound\"")
+  if (kubeListExisted.out.string.trim == "NotFound") {
+    %('scp, "kubernetes.list", s"$username@$hostname:")
+    %('ssh, s"$username@$hostname", "sudo mv kubernetes.list /etc/apt/sources.list.d/kubernetes.list")
+  }
+  %('ssh, s"$username@$hostname", "sudo apt-get update && sudo apt-get install -y kubelet kubeadm kubectl")
+}
