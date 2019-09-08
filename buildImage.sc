@@ -57,26 +57,51 @@ runcmd:
 """
 
 @main
-def flashHypriotOS(ssid: String, psk: String, device: String, hostname: String, username: String, sshPubKey: String) = {
+def flashHypriotOS(ssid: String, psk: String, rpiHostname: String, rpiUsername: String) = {
   val HypriotOSVersion = "v1.10.0"
   val flashexec = root/'usr/'local/'bin/'flash
+  val tmpFlash = home/'flash
   if (!exists(flashexec)) {
     val resp = requests.get("https://raw.githubusercontent.com/hypriot/flash/2.3.0/flash")
-    write(flashexec, resp.contents)
-    %('chmod, "+x", flashexec.toString)
+    rm! tmpFlash
+    write(tmpFlash, resp.contents)
+    %('chmod, "+x", tmpFlash.toString)
+    %('sudo, "mv", tmpFlash.toString, flashexec.toString)
   }
-  write.over(pwd/"wifi.yaml", customConfig(ssid, psk, hostname, username, sshPubKey))
-  %('flash, "--userdata", "wifi.yaml", "--device", device, s"https://github.com/hypriot/image-builder-rpi/releases/download/$HypriotOSVersion/hypriotos-rpi-$HypriotOSVersion.img.zip")
+  val publicKey = read! home/".ssh"/"id_rsa.pub"
+  write.over(pwd/"wifi.yaml", customConfig(ssid, psk, rpiHostname, rpiUsername, publicKey))
+  %('flash, "--userdata", "wifi.yaml", s"https://github.com/hypriot/image-builder-rpi/releases/download/$HypriotOSVersion/hypriotos-rpi-$HypriotOSVersion.img.zip")
 }
 
 @main
-def installKubernetes(hostname: String, username: String) = {
-  %('ssh, "-i", s"${home.toString}/.ssh/id_rsa", s"$username@$hostname", "sudo apt-get update && sudo apt-get install -y apt-transport-https curl")
-  %('ssh, s"$username@$hostname", "curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -")
-  val kubeListExisted = %%('ssh, s"$username@$hostname", "[ -f /etc/apt/sources.list.d/kubernetes.list ] && echo \"Found\" || echo \"NotFound\"")
+def installKubernetes(rpiHostname: String, rpiUsername: String) = {
+  %('ssh, "-i", s"${home.toString}/.ssh/id_rsa", s"$rpiUsername@$rpiHostname", "sudo apt-get update && sudo apt-get install -y apt-transport-https curl")
+  %('ssh, s"$rpiUsername@$rpiHostname", "curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -")
+  val kubeListExisted = %%('ssh, s"$rpiUsername@$rpiHostname", "[ -f /etc/apt/sources.list.d/kubernetes.list ] && echo \"Found\" || echo \"NotFound\"")
   if (kubeListExisted.out.string.trim == "NotFound") {
-    %('scp, "kubernetes.list", s"$username@$hostname:")
-    %('ssh, s"$username@$hostname", "sudo mv kubernetes.list /etc/apt/sources.list.d/kubernetes.list")
+    %('scp, "kubernetes.list", s"$rpiUsername@$rpiHostname:")
+    %('ssh, s"$rpiUsername@$rpiHostname", "sudo mv kubernetes.list /etc/apt/sources.list.d/kubernetes.list")
   }
-  %('ssh, s"$username@$hostname", "sudo apt-get update && sudo apt-get install -y kubelet kubeadm kubectl")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo apt-get update && sudo apt-get install -y kubelet kubeadm kubectl")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo apt-mark hold kubelet kubeadm kubectl")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo systemctl daemon-reload")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo systemctl restart kubelet")
+}
+
+@main
+def initCluster(rpiHostname: String, rpiUsername: String) = {
+  %('ssh, "-i", s"${home.toString}/.ssh/id_rsa", s"$rpiUsername@$rpiHostname", "sudo kubeadm init")
+  %('ssh, s"$rpiUsername@$rpiHostname", "mkdir -p $HOME/.kube")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo chown $(id -u):$(id -g) $HOME/.kube/config")
+  %('ssh, s"$rpiUsername@$rpiHostname", "kubectl apply -f \"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')\"")
+  val join = pwd/"join.txt"
+  val joinCmd = %%('ssh, s"$rpiUsername@$rpiHostname", "sudo kubeadm token create --print-join-command")
+  write(join, joinCmd.out.string)
+}
+
+@main
+def joinCluster(rpiHostname: String, rpiUsername: String) = {
+  val join = read! pwd/"join.txt"
+  %('ssh, s"$rpiUsername@$rpiHostname", s"sudo $join")
 }
