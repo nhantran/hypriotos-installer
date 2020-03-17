@@ -58,7 +58,7 @@ runcmd:
 
 @main
 def flashHypriotOS(ssid: String, psk: String, rpiHostname: String, rpiUsername: String) = {
-  val HypriotOSVersion = "v1.10.0"
+  val HypriotOSVersion = "v1.12.0"
   val flashexec = root/'usr/'local/'bin/'flash
   val tmpFlash = home/'flash
   if (!exists(flashexec)) {
