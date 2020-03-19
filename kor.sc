@@ -75,14 +75,15 @@ def flashHypriotOS(ssid: String, psk: String, rpiHostname: String, rpiUsername: 
 
 @main
 def installKubernetes(rpiHostname: String, rpiUsername: String) = {
-  %('ssh, "-i", s"${home.toString}/.ssh/id_rsa", s"$rpiUsername@$rpiHostname", "sudo apt-get update && sudo apt-get install -y apt-transport-https curl")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo apt update && sudo apt upgrade -y")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo apt install -y apt-transport-https curl")
   %('ssh, s"$rpiUsername@$rpiHostname", "curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -")
   val kubeListExisted = %%('ssh, s"$rpiUsername@$rpiHostname", "[ -f /etc/apt/sources.list.d/kubernetes.list ] && echo \"Found\" || echo \"NotFound\"")
   if (kubeListExisted.out.string.trim == "NotFound") {
     %('scp, "kubernetes.list", s"$rpiUsername@$rpiHostname:")
     %('ssh, s"$rpiUsername@$rpiHostname", "sudo mv kubernetes.list /etc/apt/sources.list.d/kubernetes.list")
   }
-  %('ssh, s"$rpiUsername@$rpiHostname", "sudo apt-get update && sudo apt-get install -y kubelet kubeadm kubectl")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo apt update && sudo apt install -y kubelet kubeadm kubectl")
   %('ssh, s"$rpiUsername@$rpiHostname", "sudo apt-mark hold kubelet kubeadm kubectl")
   %('ssh, s"$rpiUsername@$rpiHostname", "sudo systemctl daemon-reload")
   %('ssh, s"$rpiUsername@$rpiHostname", "sudo systemctl restart kubelet")
@@ -90,18 +91,16 @@ def installKubernetes(rpiHostname: String, rpiUsername: String) = {
 
 @main
 def initCluster(rpiHostname: String, rpiUsername: String) = {
-  %('ssh, "-i", s"${home.toString}/.ssh/id_rsa", s"$rpiUsername@$rpiHostname", "sudo kubeadm init")
+  %('ssh, s"$rpiUsername@$rpiHostname", "sudo kubeadm init")
   %('ssh, s"$rpiUsername@$rpiHostname", "mkdir -p $HOME/.kube")
   %('ssh, s"$rpiUsername@$rpiHostname", "sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config")
   %('ssh, s"$rpiUsername@$rpiHostname", "sudo chown $(id -u):$(id -g) $HOME/.kube/config")
   %('ssh, s"$rpiUsername@$rpiHostname", "kubectl apply -f \"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')\"")
-  val join = pwd/"join.txt"
-  val joinCmd = %%('ssh, s"$rpiUsername@$rpiHostname", "sudo kubeadm token create --print-join-command")
-  write(join, joinCmd.out.string)
 }
 
 @main
-def joinCluster(rpiHostname: String, rpiUsername: String) = {
-  val join = read! pwd/"join.txt"
-  %('ssh, s"$rpiUsername@$rpiHostname", s"sudo $join")
+def joinCluster(masterHostname: String, masterUsername: String, rpiHostname: String, rpiUsername: String) = {
+  val joinText = %%('ssh, s"$masterUsername@$masterHostname", "sudo kubeadm token create --print-join-command")
+  val join = joinText.out.string.replaceAll("(\\d+.){3}\\d+", masterHostname.split('.')(0))
+  %('ssh, s"$rpiUsername@$rpiHostname", s"sudo ${join}")
 }
