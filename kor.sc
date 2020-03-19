@@ -91,7 +91,7 @@ def installKubernetes(rpiHostname: String, rpiUsername: String) = {
 
 @main
 def initCluster(rpiHostname: String, rpiUsername: String) = {
-  %('ssh, s"$rpiUsername@$rpiHostname", "sudo kubeadm init")
+  %('ssh, s"$rpiUsername@$rpiHostname", s"sudo kubeadm init --node-name ${rpiHostname.split('.')(0)}")
   %('ssh, s"$rpiUsername@$rpiHostname", "mkdir -p $HOME/.kube")
   %('ssh, s"$rpiUsername@$rpiHostname", "sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config")
   %('ssh, s"$rpiUsername@$rpiHostname", "sudo chown $(id -u):$(id -g) $HOME/.kube/config")
